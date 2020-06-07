@@ -1,6 +1,7 @@
 from slither.core.cfg.node import Node
 from slither.core.cfg.node import NodeType
 from slither.solc_parsing.expressions.expression_parsing import parse_expression
+from slither.solc_parsing.yul.parse_yul import parse_yul_expression
 from slither.visitors.expression.read_var import ReadVar
 from slither.visitors.expression.write_var import WriteVar
 from slither.visitors.expression.find_calls import FindCalls
@@ -19,10 +20,15 @@ class NodeSolc(Node):
     def __init__(self, nodeType, nodeId):
         super(NodeSolc, self).__init__(nodeType, nodeId)
         self._unparsed_expression = None
+        self._unparsed_yul_expression = None
 
     def add_unparsed_expression(self, expression):
         assert self._unparsed_expression is None
         self._unparsed_expression = expression
+
+    def add_unparsed_yul_expression(self, expression):
+        assert self._unparsed_expression is None
+        self._unparsed_yul_expression = expression
 
     def analyze_expressions(self, caller_context):
         if self.type == NodeType.VARIABLE and not self._expression:
@@ -31,6 +37,11 @@ class NodeSolc(Node):
             expression = parse_expression(self._unparsed_expression, caller_context)
             self._expression = expression
             self._unparsed_expression = None
+
+        if self._unparsed_yul_expression:
+            expression = parse_yul_expression(self._unparsed_yul_expression, self)
+            self._expression = expression
+            self._unparsed_yul_expression = None
 
         if self.expression:
 
