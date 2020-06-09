@@ -28,6 +28,20 @@ class NodeSolc(Node):
         """
         self._yul_local_variables = None
         self._yul_local_functions = None
+        self._yul_path = None
+
+    def set_yul_root(self, func):
+        self._yul_path = [func.name, f"asm_{func._counter_asm_nodes}"]
+
+    def set_yul_child(self, parent, cur):
+        self._yul_path = parent.yul_path +  [cur]
+
+    @property
+    def yul_path(self):
+        return self._yul_path
+
+    def format_canonical_yul_name(self, name, off=None):
+        return ".".join(self._yul_path[:off] + [name])
 
     def add_yul_local_variable(self, var):
         if not self._yul_local_variables:

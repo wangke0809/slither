@@ -47,6 +47,7 @@ class FunctionSolc(Function):
         self._params_was_analyzed = False
         self._content_was_analyzed = False
         self._counter_nodes = 0
+        self._counter_asm_nodes = 0
 
         self._counter_scope_local_variables = 0
         # variable renamed will map the solc id
@@ -735,7 +736,9 @@ class FunctionSolc(Function):
             if 'AST' in statement:
                 self._contains_assembly = True
                 yul_root = self.new_node(NodeType.ASSEMBLY, statement['src'])
+                yul_root.set_yul_root(self)
                 link_nodes(node, yul_root)
+                self._counter_asm_nodes += 1
 
                 node = convert_yul(yul_root, yul_root, statement['AST'])
             else:
@@ -945,7 +948,7 @@ class FunctionSolc(Function):
 
         self.parameters_src = SourceMapping()
         self.parameters_src.set_offset(params['src'], self.contract.slither)
-        
+
         if self.is_compact_ast:
             params = params['parameters']
         else:
@@ -963,7 +966,7 @@ class FunctionSolc(Function):
 
         self.returns_src = SourceMapping()
         self.returns_src.set_offset(returns['src'], self.contract.slither)
-        
+
         if self.is_compact_ast:
             returns = returns['parameters']
         else:
