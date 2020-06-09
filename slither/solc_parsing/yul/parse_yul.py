@@ -1,3 +1,5 @@
+import json
+
 from slither.core.cfg.node import NodeType, link_nodes
 from slither.core.declarations import Function
 from slither.core.expressions import (
@@ -18,9 +20,23 @@ from slither.solc_parsing.yul.yul_variable import YulVariable
 ###################################################################################
 
 """
-These functions convert control flow structures to an internal node-based
-representation. Expressions should be stored in `add_unparsed_yul_expression`
-for later.
+The functions in this region, at a high level, will extract the control flow
+structures and metadata from the input AST. These include things like function
+definitions and local variables.
+
+Each function takes three parameters:
+    1)  root is a NodeSolc of NodeType.ASSEMBLY, and stores information at the
+        local scope. In Yul, variables are scoped to the function they're
+        declared in (except for variables outside the assembly block)
+    2)  parent is the last node in the CFG. new nodes should be linked against
+        this node
+    3)  ast is a dictionary and is the current node in the Yul ast being converted
+    
+Each function must return a single parameter:
+    1) A NodeSolc representing the new end of the CFG
+
+The entrypoint is the function at the end of this region, `convert_yul`, which
+dispatches to a specialized function based on a lookup dictionary.
 """
 
 
@@ -322,7 +338,6 @@ def convert_yul_typed_name(root, parent, ast):
 
 
 def convert_yul_unsupported(root, parent, ast):
-    import json
     raise SlitherException(f"no converter available for {ast['nodeType']} {json.dumps(ast, indent=2)}")
 
 
@@ -345,13 +360,31 @@ converters = {
     'YulTypedName': convert_yul_typed_name,
 }
 
-
 # endregion
+###################################################################################
+###################################################################################
+
 ###################################################################################
 ###################################################################################
 # region Expression parsing
 ###################################################################################
 ###################################################################################
+
+"""
+The functions in this region parse the AST into expressions.
+
+Each function takes three parameters:
+    1)  root is the same root as above
+    2)  node is the CFG node which stores this expression
+    3)  ast is the same ast as above
+    
+Each function must return a single parameter:
+    1) The operation that was parsed, or None
+
+The entrypoint is the function at the end of this region, `parse_yul`, which
+dispatches to a specialized function based on a lookup dictionary.
+"""
+
 
 def _parse_yul_assignment_common(root, node, ast, key):
     lhs = [parse_yul(root, node, arg) for arg in ast[key]]
@@ -379,38 +412,31 @@ def parse_yul_assignment(root, node, ast):
 
 
 def parse_yul_function_call(root, node, ast):
-    args = ast['arguments']
-    function_name_node = ast['functionName']
+    args = [parse_yul(root, node, arg) for arg in ast['arguments']]
+    function = parse_yul(root, node, ast['functionName'])
 
-    name = function_name_node['name']
-    if name in binary_ops:
-        assert (len(args) == 2)
+    if isinstance(function, YulBuiltin):
+        name = function.name
+        if name in binary_ops:
+            return BinaryOperation(args[0], args[1], binary_ops[name])
 
-        return BinaryOperation(parse_yul(root, node, args[0]), parse_yul(root, node, args[1]), binary_ops[name])
+        if name in unary_ops:
+            return UnaryOperation(args[0], unary_ops[name])
 
-    if name in unary_ops:
-        assert (len(args) == 1)
-
-        return UnaryOperation(parse_yul(root, node, args[0]), unary_ops[name])
-
-    if name in unclassified:
-        # todo what
-        return YulFunction(name)
-
-    canonical_name = root.format_canonical_yul_name(name)
-    if canonical_name not in root.function.contract_declarer._functions:
-        canonical_name = root.format_canonical_yul_name(name, -1)
-
-    if canonical_name not in root.function.contract_declarer._functions:
-        raise SlitherException(
-            f"parsing error: failed to find {name} in {root.function.contract_declarer._functions.keys()}")
-
-    f = root.function.contract_declarer._functions[canonical_name]
-    return CallExpression(Identifier(f), [parse_yul(root, node, arg) for arg in args], vars_to_typestr(f.returns))
+        raise SlitherException(f"unsupported builtin {name}")
+    elif isinstance(function, Identifier):
+        return CallExpression(function, args, vars_to_typestr(function.value.returns))
+    else:
+        raise SlitherException(f"unexpected function call target type {str(type(function))}")
 
 
 def parse_yul_identifier(root, node, ast):
+    # todo handle _slot, _offset, and any other contract-scoped identifiers
+    # https://solidity.readthedocs.io/en/v0.6.2/assembly.html#access-to-external-variables-functions-and-libraries
     name = ast['name']
+
+    if name in builtins:
+        return YulBuiltin(name)
 
     # check function-scoped variables first
     variable = root.function.get_local_variable_from_name(name)
@@ -422,7 +448,21 @@ def parse_yul_identifier(root, node, ast):
     if variable:
         return Identifier(variable)
 
-    raise SlitherException(f"unresolved reference to variable {name}")
+    # check yul-scoped function
+    # note that a function can recurse into itself, so we have two canonical names
+    # to check (but only one of them can be valid)
+
+    functions = root.function.contract_declarer._functions
+
+    canonical_name = root.format_canonical_yul_name(name)
+    if canonical_name in functions:
+        return Identifier(functions[canonical_name])
+
+    canonical_name = root.format_canonical_yul_name(name, -1)
+    if canonical_name in functions:
+        return Identifier(functions[canonical_name])
+
+    raise SlitherException(f"unresolved reference to identifier {name}")
 
 
 def parse_yul_literal(root, node, ast):
@@ -444,7 +484,6 @@ def parse_yul_typed_name(root, node, ast):
 
 
 def parse_yul_unsupported(root, node, ast):
-    import json
     raise SlitherException(f"no parser available for {ast['nodeType']} {json.dumps(ast, indent=2)}")
 
 

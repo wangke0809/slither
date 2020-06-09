@@ -1,65 +1,165 @@
 from slither.core.expressions import BinaryOperationType, UnaryOperationType
-from slither.core.expressions.expression import Expression
 
-unclassified = [
-    'stop',
-    'byte',
-    'addmod',
-    'mulmod',
-    'signextend',
-    'keccak256',
-    'pc',
-    'pop',
-    'mload',
-    'mstore',
-    'mstore8',
-    'sload',
-    'sstore',
-    'msize',
-    'gas',
-    'address',
-    'balance',
-    'selfbalance',
-    'caller',
-    'callvalue',
-    'calldataload',
-    'calldatasize',
-    'calldatacopy',
-    'codesize',
-    'codecopy',
-    'extcodesize',
-    'extcodecopy',
-    'returndatasize',
-    'returndatacopy',
-    'extcodehash',
-    'create',
-    'create2',
-    'call',
-    'callcode',
-    'delegatecall',
-    'staticcall',
-    'return',
-    'revert',
-    'selfdestruct',
-    'invalid',
-    'log0',
-    'log1',
-    'log2',
-    'log3',
-    'log4',
-    'chainid',
-    'origin',
-    'gasprice',
-    'blockhash',
-    'coinbase',
-    'timestamp',
-    'number',
-    'difficulty',
-    'gaslimit'
-    'datasize',
-    'dataoffset',
-    'datacopy',
+# taken from https://github.com/ethereum/solidity/blob/356cc91084114f840da66804b2a9fc1ac2846cff/libevmasm/Instruction.cpp#L180
+builtins = [
+    "STOP",
+    "ADD",
+    "SUB",
+    "MUL",
+    "DIV",
+    "SDIV",
+    "MOD",
+    "SMOD",
+    "EXP",
+    "NOT",
+    "LT",
+    "GT",
+    "SLT",
+    "SGT",
+    "EQ",
+    "ISZERO",
+    "AND",
+    "OR",
+    "XOR",
+    "BYTE",
+    "SHL",
+    "SHR",
+    "SAR",
+    "ADDMOD",
+    "MULMOD",
+    "SIGNEXTEND",
+    "KECCAK256",
+    "ADDRESS",
+    "BALANCE",
+    "ORIGIN",
+    "CALLER",
+    "CALLVALUE",
+    "CALLDATALOAD",
+    "CALLDATASIZE",
+    "CALLDATACOPY",
+    "CODESIZE",
+    "CODECOPY",
+    "GASPRICE",
+    "EXTCODESIZE",
+    "EXTCODECOPY",
+    "RETURNDATASIZE",
+    "RETURNDATACOPY",
+    "EXTCODEHASH",
+    "BLOCKHASH",
+    "COINBASE",
+    "TIMESTAMP",
+    "NUMBER",
+    "DIFFICULTY",
+    "GASLIMIT",
+    "CHAINID",
+    "SELFBALANCE",
+    "POP",
+    "MLOAD",
+    "MSTORE",
+    "MSTORE8",
+    "SLOAD",
+    "SSTORE",
+    "JUMP",
+    "JUMPI",
+    "PC",
+    "MSIZE",
+    "GAS",
+    "JUMPDEST",
+    "PUSH1",
+    "PUSH2",
+    "PUSH3",
+    "PUSH4",
+    "PUSH5",
+    "PUSH6",
+    "PUSH7",
+    "PUSH8",
+    "PUSH9",
+    "PUSH10",
+    "PUSH11",
+    "PUSH12",
+    "PUSH13",
+    "PUSH14",
+    "PUSH15",
+    "PUSH16",
+    "PUSH17",
+    "PUSH18",
+    "PUSH19",
+    "PUSH20",
+    "PUSH21",
+    "PUSH22",
+    "PUSH23",
+    "PUSH24",
+    "PUSH25",
+    "PUSH26",
+    "PUSH27",
+    "PUSH28",
+    "PUSH29",
+    "PUSH30",
+    "PUSH31",
+    "PUSH32",
+    "DUP1",
+    "DUP2",
+    "DUP3",
+    "DUP4",
+    "DUP5",
+    "DUP6",
+    "DUP7",
+    "DUP8",
+    "DUP9",
+    "DUP10",
+    "DUP11",
+    "DUP12",
+    "DUP13",
+    "DUP14",
+    "DUP15",
+    "DUP16",
+    "SWAP1",
+    "SWAP2",
+    "SWAP3",
+    "SWAP4",
+    "SWAP5",
+    "SWAP6",
+    "SWAP7",
+    "SWAP8",
+    "SWAP9",
+    "SWAP10",
+    "SWAP11",
+    "SWAP12",
+    "SWAP13",
+    "SWAP14",
+    "SWAP15",
+    "SWAP16",
+    "LOG0",
+    "LOG1",
+    "LOG2",
+    "LOG3",
+    "LOG4",
+    "CREATE",
+    "CALL",
+    "CALLCODE",
+    "STATICCALL",
+    "RETURN",
+    "DELEGATECALL",
+    "CREATE2",
+    "REVERT",
+    "INVALID",
+    "SELFDESTRUCT",
 ]
+
+builtins = [x.lower() for x in builtins if not (
+        x.startswith("PUSH") or
+        x.startswith("SWAP") or
+        x.startswith("DUP") or
+        x == "JUMP" or
+        x == "JUMPI" or
+        x == "JUMPDEST"
+)] + [
+               "datasize",
+               "dataoffset",
+               "datacopy",
+               "setimmutable",
+               "loadimmutable",
+           ]
 
 unary_ops = {
     'not': UnaryOperationType.TILD,
@@ -88,38 +188,11 @@ binary_ops = {
     'sar': BinaryOperationType.RIGHT_SHIFT,
 }
 
-class YulFunction(Expression):
-    # Non standard handling of type(address). This function returns an undefined object
-    # The type is dynamic
-    # https://solidity.readthedocs.io/en/latest/units-and-global-variables.html#type-information
-    # As a result, we set return_type during the Ir conversion
 
+class YulBuiltin:
     def __init__(self, name):
-        super(YulFunction, self).__init__()
         self._name = name
-        self._return_type = []
 
     @property
     def name(self):
         return self._name
-
-    @property
-    def full_name(self):
-        return self.name
-
-    @property
-    def return_type(self):
-        return self._return_type
-
-    @return_type.setter
-    def return_type(self, r):
-        self._return_type = r
-
-    def __str__(self):
-        return self._name
-
-    def __eq__(self, other):
-        return self.__class__ == other.__class__ and self.name == other.name
-
-    def __hash__(self):
-        return hash(self.name)
