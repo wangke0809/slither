@@ -1,7 +1,7 @@
 from slither.core.cfg.node import Node
 from slither.core.cfg.node import NodeType
 from slither.solc_parsing.expressions.expression_parsing import parse_expression
-from slither.solc_parsing.yul.parse_yul import parse_yul_expression
+from slither.solc_parsing.yul.parse_yul import parse_yul
 from slither.visitors.expression.read_var import ReadVar
 from slither.visitors.expression.write_var import WriteVar
 from slither.visitors.expression.find_calls import FindCalls
@@ -22,13 +22,36 @@ class NodeSolc(Node):
         self._unparsed_expression = None
         self._unparsed_yul_expression = None
 
+        """
+        todo this should really go somewhere else, but until
+        that happens I'm setting it to None for performance
+        """
+        self._yul_local_variables = None
+        self._yul_local_functions = None
+
+    def add_yul_local_variable(self, var):
+        if not self._yul_local_variables:
+            self._yul_local_variables = []
+        self._yul_local_variables.append(var)
+
+    def get_yul_local_variable_from_name(self, variable_name):
+        return next((v for v in self._yul_local_variables if v.name == variable_name), None)
+
+    def add_yul_local_function(self, func):
+        if not self._yul_local_functions:
+            self._yul_local_functions = []
+        self._yul_local_functions.append(func)
+
+    def get_yul_local_function_from_name(self, func_name):
+        return next((v for v in self._yul_local_functions if v.name == func_name), None)
+
     def add_unparsed_expression(self, expression):
         assert self._unparsed_expression is None
         self._unparsed_expression = expression
 
-    def add_unparsed_yul_expression(self, expression):
+    def add_unparsed_yul_expression(self, root, expression):
         assert self._unparsed_expression is None
-        self._unparsed_yul_expression = expression
+        self._unparsed_yul_expression = (root, expression)
 
     def analyze_expressions(self, caller_context):
         if self.type == NodeType.VARIABLE and not self._expression:
@@ -39,7 +62,7 @@ class NodeSolc(Node):
             self._unparsed_expression = None
 
         if self._unparsed_yul_expression:
-            expression = parse_yul_expression(self._unparsed_yul_expression, self)
+            expression = parse_yul(self._unparsed_yul_expression[0], self, self._unparsed_yul_expression[1])
             self._expression = expression
             self._unparsed_yul_expression = None
 

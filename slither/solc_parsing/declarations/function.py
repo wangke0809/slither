@@ -16,7 +16,7 @@ from slither.solc_parsing.variables.local_variable_init_from_tuple import \
     LocalVariableInitFromTupleSolc
 from slither.solc_parsing.variables.variable_declaration import \
     MultipleVariablesDeclaration
-from slither.solc_parsing.yul.parse_yul import parse_yul
+from slither.solc_parsing.yul.parse_yul import convert_yul
 from slither.utils.expression_manipulations import SplitTernaryExpression
 from slither.visitors.expression.export_values import ExportValues
 from slither.visitors.expression.has_conditional import HasConditional
@@ -733,7 +733,11 @@ class FunctionSolc(Function):
 
             # Added with solc 0.6 - the yul code is an AST
             if 'AST' in statement:
-                node = parse_yul(statement['AST'], node)
+                self._contains_assembly = True
+                yul_root = self.new_node(NodeType.ASSEMBLY, statement['src'])
+                link_nodes(node, yul_root)
+
+                node = convert_yul(yul_root, yul_root, statement['AST'])
             else:
                 asm_node = self.new_node(NodeType.ASSEMBLY, statement['src'])
                 self._contains_assembly = True
