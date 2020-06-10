@@ -48,6 +48,7 @@ class YulFunction(Function):
         self._entry_point.set_yul_child(root, ast['name'])
 
         self._ast = ast
+        self.set_offset(ast['src'], root.function.slither)
 
     def convert_body(self):
         node = self.new_node(NodeType.ENTRYPOINT, self._ast['src'])
@@ -127,9 +128,12 @@ def convert_yul_variable_declaration(root, parent, ast):
     for variable_ast in ast['variables']:
         parent = convert_yul(root, parent, variable_ast)
 
+
+
     node = parent.function.new_node(NodeType.EXPRESSION, ast["src"])
     node.add_unparsed_yul_expression(root, ast)
     link_nodes(parent, node)
+
     return node
 
 
@@ -367,7 +371,11 @@ def convert_yul_typed_name(root, parent, ast):
 
     root.add_yul_local_variable(var)
 
-    return parent
+    node = parent.function.new_node(NodeType.VARIABLE, ast['src'])
+    node.add_variable_declaration(var)
+    link_nodes(parent, node)
+
+    return node
 
 
 def convert_yul_unsupported(root, parent, ast):
@@ -423,9 +431,7 @@ def _parse_yul_assignment_common(root, node, ast, key):
     lhs = [parse_yul(root, node, arg) for arg in ast[key]]
     rhs = parse_yul(root, node, ast['value'])
 
-    operation = AssignmentOperation(vars_to_val(lhs), rhs, AssignmentOperationType.ASSIGN, vars_to_typestr(lhs))
-    operation.set_offset(ast["src"], root.slither)
-    return operation
+    return AssignmentOperation(vars_to_val(lhs), rhs, AssignmentOperationType.ASSIGN, vars_to_typestr(lhs))
 
 
 def parse_yul_variable_declaration(root, node, ast):
@@ -534,7 +540,10 @@ def parse_yul_unsupported(root, node, ast):
 
 
 def parse_yul(root, node, ast):
-    return parsers.get(ast['nodeType'], parse_yul_unsupported)(root, node, ast)
+    op = parsers.get(ast['nodeType'], parse_yul_unsupported)(root, node, ast)
+    if op:
+        op.set_offset(ast["src"], root.slither)
+    return op
 
 
 parsers = {
