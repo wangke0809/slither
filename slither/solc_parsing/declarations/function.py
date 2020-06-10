@@ -263,6 +263,9 @@ class FunctionSolc(Function):
         self._nodes.append(node)
         return node
 
+    def node_solc(self):
+        return NodeSolc
+
     # endregion
     ###################################################################################
     ###################################################################################

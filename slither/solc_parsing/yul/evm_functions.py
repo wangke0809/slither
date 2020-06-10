@@ -1,7 +1,8 @@
+from slither.core.declarations.solidity_variables import SOLIDITY_FUNCTIONS
 from slither.core.expressions import BinaryOperationType, UnaryOperationType
 
 # taken from https://github.com/ethereum/solidity/blob/356cc91084114f840da66804b2a9fc1ac2846cff/libevmasm/Instruction.cpp#L180
-builtins = [
+evm_opcodes = [
     "STOP",
     "ADD",
     "SUB",
@@ -146,20 +147,89 @@ builtins = [
     "SELFDESTRUCT",
 ]
 
-builtins = [x.lower() for x in builtins if not (
+yul_funcs = [
+    "datasize",
+    "dataoffset",
+    "datacopy",
+    "setimmutable",
+    "loadimmutable",
+]
+
+builtins = [x.lower() for x in evm_opcodes if not (
         x.startswith("PUSH") or
         x.startswith("SWAP") or
         x.startswith("DUP") or
         x == "JUMP" or
         x == "JUMPI" or
         x == "JUMPDEST"
-)] + [
-               "datasize",
-               "dataoffset",
-               "datacopy",
-               "setimmutable",
-               "loadimmutable",
-           ]
+)] + yul_funcs
+
+function_args = {
+    'byte': [2, 1],
+    'addmod': [3, 1],
+    'mulmod': [3, 1],
+    'signextend': [2, 1],
+    'keccak256': [2, 1],
+    'pc': [0, 1],
+    'pop': [1, 0],
+    'mload': [1, 1],
+    'mstore': [2, 0],
+    'mstore8': [2, 0],
+    'sload': [1, 1],
+    'sstore': [2, 0],
+    'msize': [1, 1],
+    'gas': [0, 1],
+    'address': [0, 1],
+    'balance': [1, 1],
+    'selfbalance': [0, 1],
+    'caller': [0, 1],
+    'callvalue': [0, 1],
+    'calldataload': [1, 1],
+    'calldatasize': [0, 1],
+    'calldatacopy': [3, 0],
+    'codesize': [0, 1],
+    'codecopy': [3, 0],
+    'extcodesize': [1, 1],
+    'extcodecopy': [4, 0],
+    'returndatasize': [0, 1],
+    'returndatacopy': [3, 0],
+    'extcodehash': [1, 1],
+    'create': [3, 1],
+    'create2': [4, 1],
+    'call': [7, 1],
+    'callcode': [7, 1],
+    'delegatecall': [6, 1],
+    'staticcall': [6, 1],
+    'return': [2, 0],
+    'revert': [2, 0],
+    'selfdestruct': [1, 0],
+    'invalid': [0, 0],
+    'log0': [2, 0],
+    'log1': [3, 0],
+    'log2': [4, 0],
+    'log3': [5, 0],
+    'log4': [6, 0],
+    'chainid': [0, 1],
+    'origin': [0, 1],
+    'gasprice': [0, 1],
+    'blockhash': [1, 1],
+    'coinbase': [0, 1],
+    'timestamp': [0, 1],
+    'number': [0, 1],
+    'difficulty': [0, 1],
+    'gaslimit': [0, 1],
+}
+
+
+def format_function_descriptor(name):
+    if name not in function_args:
+        return name + "()"
+
+    return name + "(" + ",".join(["uint256"] * function_args[name][0]) + ")"
+
+
+for k, v in function_args.items():
+    SOLIDITY_FUNCTIONS[format_function_descriptor(k)] = ['uint256'] * v[1]
 
 unary_ops = {
     'not': UnaryOperationType.TILD,

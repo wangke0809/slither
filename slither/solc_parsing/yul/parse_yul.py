@@ -1,7 +1,7 @@
 import json
 
 from slither.core.cfg.node import NodeType, link_nodes
-from slither.core.declarations import Function
+from slither.core.declarations import Function, SolidityFunction
 from slither.core.expressions import (
     Literal,
     AssignmentOperation,
@@ -9,9 +9,75 @@ from slither.core.expressions import (
     Identifier, CallExpression, TupleExpression, BinaryOperation, UnaryOperation,
 )
 from slither.core.solidity_types import ElementaryType
+from slither.core.variables.local_variable import LocalVariable
 from slither.exceptions import SlitherException
 from slither.solc_parsing.yul.evm_functions import *
-from slither.solc_parsing.yul.yul_variable import YulVariable
+
+
+class YulVariable(LocalVariable):
+
+    def __init__(self, ast):
+        super(LocalVariable, self).__init__()
+
+        assert (ast['nodeType'] == 'YulTypedName')
+
+        self._name = ast['name']
+        self.reference_id = None
+        self._location = 'memory'
+        self.set_type('uint256')
+
+
+class YulFunction(Function):
+
+    def __init__(self, ast, root):
+        super(YulFunction, self).__init__()
+
+        assert (ast['nodeType'] == 'YulFunctionDefinition')
+
+        self._contract = root.function.contract
+        self._contract_declarer = root.function.contract_declarer
+
+        self._name = root.format_canonical_yul_name(ast['name'])
+        self._counter_nodes = 0
+
+        self._is_implemented = True
+
+        self._node_solc = root.function.node_solc()
+
+        self._entry_point = self.new_node(NodeType.ASSEMBLY, ast['src'])
+        self._entry_point.set_yul_child(root, ast['name'])
+
+        self._ast = ast
+
+    def convert_body(self):
+        node = self.new_node(NodeType.ENTRYPOINT, self._ast['src'])
+        link_nodes(self.entry_point, node)
+
+        for param in self._ast.get('parameters', []):
+            node = convert_yul(self.entry_point, node, param)
+            self._parameters.append(self.entry_point.get_yul_local_variable_from_name(param['name']))
+
+        for ret in self._ast.get('returnVariables', []):
+            node = convert_yul(self.entry_point, node, ret)
+            self._returns.append(self.entry_point.get_yul_local_variable_from_name(ret['name']))
+
+        convert_yul(self.entry_point, node, self._ast['body'])
+
+    def parse_body(self):
+        for node in self.nodes:
+            node.analyze_expressions(self)
+
+    def node_solc(self):
+        return self._node_solc
+
+    def new_node(self, node_type, src):
+        node = self._node_solc(node_type, self._counter_nodes)
+        node.set_offset(src, self.slither)
+        node.set_function(self)
+        self._counter_nodes += 1
+        self._nodes.append(node)
+        return node
+
 
 ###################################################################################
 ###################################################################################
@@ -47,45 +113,12 @@ def convert_yul_block(root, parent, ast):
 
 
 def convert_yul_function_definition(root, parent, ast):
-    # todo this is so bad
-    f = Function()
-    f._contract = root.function.contract
-    f._name = root.format_canonical_yul_name(ast['name'])
-    f._contract_declarer = root.function.contract_declarer
-    f._is_implemented = True
-    f._counter_nodes = 0
+    f = YulFunction(ast, root)
 
-    def new_node(node_type, src):
-        node = root.function.new_node(node_type, src)
-        node.set_function(f)
-        node._node_id = f._counter_nodes
-        root.function._counter_nodes -= 1
-        root.function._nodes.pop()
-        f._counter_nodes += 1
-        f._nodes.append(node)
-        return node
+    root.function.contract._functions[f.name] = f
 
-    f.new_node = new_node
-    root.function.contract._functions[f._name] = f
-
-    new_root = f.new_node(NodeType.ASSEMBLY, ast['src'])
-    new_root.set_yul_child(root, ast['name'])
-    f._entry_point = new_root
-
-    node = f.new_node(NodeType.ENTRYPOINT, ast['src'])
-    link_nodes(new_root, node)
-
-    for param in ast.get('parameters', []):
-        node = convert_yul(new_root, node, param)
-        f._parameters.append(new_root.get_yul_local_variable_from_name(param['name']))
-
-    for ret in ast.get('returnVariables', []):
-        node = convert_yul(new_root, node, ret)
-        f._returns.append(new_root.get_yul_local_variable_from_name(ret['name']))
-    convert_yul(new_root, node, ast['body'])
-
-    for node in f.nodes:
-        node.analyze_expressions(f)
+    f.convert_body()
+    f.parse_body()
 
     return parent
 
@@ -413,21 +446,24 @@ def parse_yul_assignment(root, node, ast):
 
 def parse_yul_function_call(root, node, ast):
     args = [parse_yul(root, node, arg) for arg in ast['arguments']]
-    function = parse_yul(root, node, ast['functionName'])
+    ident = parse_yul(root, node, ast['functionName'])
 
-    if isinstance(function, YulBuiltin):
-        name = function.name
+    if isinstance(ident.value, YulBuiltin):
+        name = ident.value.name
         if name in binary_ops:
             return BinaryOperation(args[0], args[1], binary_ops[name])
 
         if name in unary_ops:
             return UnaryOperation(args[0], unary_ops[name])
 
-        raise SlitherException(f"unsupported builtin {name}")
-    elif isinstance(function, Identifier):
-        return CallExpression(function, args, vars_to_typestr(function.value.returns))
+        ident = Identifier(SolidityFunction(format_function_descriptor(ident.value.name)))
+
+    if isinstance(ident.value, Function):
+        return CallExpression(ident, args, vars_to_typestr(ident.value.returns))
+    elif isinstance(ident.value, SolidityFunction):
+        return CallExpression(ident, args, vars_to_typestr(ident.value.return_type))
     else:
-        raise SlitherException(f"unexpected function call target type {str(type(function))}")
+        raise SlitherException(f"unexpected function call target type {str(type(ident.value))}")
 
 
 def parse_yul_identifier(root, node, ast):
@@ -436,9 +472,9 @@ def parse_yul_identifier(root, node, ast):
     name = ast['name']
 
     if name in builtins:
-        return YulBuiltin(name)
+        return Identifier(YulBuiltin(name))
 
-    # check function-scoped variables first
+    # check function-scoped variables
     variable = root.function.get_local_variable_from_name(name)
     if variable:
         return Identifier(variable)
@@ -461,6 +497,17 @@ def parse_yul_identifier(root, node, ast):
     canonical_name = root.format_canonical_yul_name(name, -1)
     if canonical_name in functions:
         return Identifier(functions[canonical_name])
+
+    # check for magic suffixes
+    if name.endswith("_slot"):
+        potential_name = name[:-5]
+        var = root.function.contract.get_state_variable_from_name(potential_name)
+        print(f"found {var} for {name} {potential_name}")
+        if var:
+            # what do we do here?
+            pass
+    if name.endswith("_offset"):
+        pass
 
     raise SlitherException(f"unresolved reference to identifier {name}")
 
@@ -506,6 +553,8 @@ parsers = {
 ###################################################################################
 
 def vars_to_typestr(rets):
+    if len(rets) == 0:
+        return ""
     if len(rets) == 1:
         return str(rets[0].type)
     return "tuple({})".format(",".join(str(ret.type) for ret in rets))
