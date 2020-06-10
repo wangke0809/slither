@@ -1,7 +1,7 @@
 import json
 
 from slither.core.cfg.node import NodeType, link_nodes
-from slither.core.declarations import Function, SolidityFunction
+from slither.core.declarations import Function, SolidityFunction, SolidityVariable
 from slither.core.expressions import (
     Literal,
     AssignmentOperation,
@@ -127,7 +127,7 @@ def convert_yul_variable_declaration(root, parent, ast):
     for variable_ast in ast['variables']:
         parent = convert_yul(root, parent, variable_ast)
 
-    node = parent.function.new_node(NodeType.EXPRESSION, ast["src"])  # todo should this be NodeType.VARIABLE
+    node = parent.function.new_node(NodeType.EXPRESSION, ast["src"])
     node.add_unparsed_yul_expression(root, ast)
     link_nodes(parent, node)
     return node
@@ -467,8 +467,6 @@ def parse_yul_function_call(root, node, ast):
 
 
 def parse_yul_identifier(root, node, ast):
-    # todo handle _slot, _offset, and any other contract-scoped identifiers
-    # https://solidity.readthedocs.io/en/v0.6.2/assembly.html#access-to-external-variables-functions-and-libraries
     name = ast['name']
 
     if name in builtins:
@@ -502,12 +500,13 @@ def parse_yul_identifier(root, node, ast):
     if name.endswith("_slot"):
         potential_name = name[:-5]
         var = root.function.contract.get_state_variable_from_name(potential_name)
-        print(f"found {var} for {name} {potential_name}")
         if var:
-            # what do we do here?
-            pass
+            return Identifier(SolidityVariable(name))
     if name.endswith("_offset"):
-        pass
+        potential_name = name[:-7]
+        var = root.function.contract.get_state_variable_from_name(potential_name)
+        if var:
+            return Identifier(SolidityVariable(name))
 
     raise SlitherException(f"unresolved reference to identifier {name}")
 
