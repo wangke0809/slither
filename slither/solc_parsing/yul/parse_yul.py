@@ -14,17 +14,16 @@ from slither.exceptions import SlitherException
 from slither.solc_parsing.yul.evm_functions import *
 
 
-class YulVariable(LocalVariable):
+class YulLocalVariable(LocalVariable):
 
     def __init__(self, ast):
         super(LocalVariable, self).__init__()
 
         assert (ast['nodeType'] == 'YulTypedName')
-
         self._name = ast['name']
-        self.reference_id = None
+        self._type = ElementaryType('uint256')
+
         self._location = 'memory'
-        self.set_type('uint256')
 
 
 class YulFunction(Function):
@@ -37,7 +36,8 @@ class YulFunction(Function):
         self._contract = root.function.contract
         self._contract_declarer = root.function.contract_declarer
 
-        self._name = root.format_canonical_yul_name(ast['name'])
+        self._name = ast['name']
+        self._scope = root.yul_path
         self._counter_nodes = 0
 
         self._is_implemented = True
@@ -116,7 +116,7 @@ def convert_yul_block(root, parent, ast):
 def convert_yul_function_definition(root, parent, ast):
     f = YulFunction(ast, root)
 
-    root.function.contract._functions[f.name] = f
+    root.function.contract._functions[root.format_canonical_yul_name(f.name)] = f
 
     f.convert_body()
     f.parse_body()
@@ -127,8 +127,6 @@ def convert_yul_function_definition(root, parent, ast):
 def convert_yul_variable_declaration(root, parent, ast):
     for variable_ast in ast['variables']:
         parent = convert_yul(root, parent, variable_ast)
-
-
 
     node = parent.function.new_node(NodeType.EXPRESSION, ast["src"])
     node.add_unparsed_yul_expression(root, ast)
@@ -156,19 +154,28 @@ def convert_yul_expression_statement(root, parent, ast):
 
 
 def convert_yul_if(root, parent, ast):
+    # we're cheating and pretending that yul supports if/else so we can convert switch cleaner
+
     src = ast['src']
     condition_ast = ast['condition']
-    body_ast = ast['body']
+    true_body_ast = ast['body']
+    false_body_ast = ast['false_body'] if 'false_body' in ast else None
 
     condition = parent.function.new_node(NodeType.IF, src)
-    condition.add_unparsed_yul_expression(root, condition_ast)
-
-    body = convert_yul(root, condition, body_ast)
     end = parent.function.new_node(NodeType.ENDIF, src)
 
+    condition.add_unparsed_yul_expression(root, condition_ast)
+
+    true_body = convert_yul(root, condition, true_body_ast)
+
+    if false_body_ast:
+        false_body = convert_yul(root, condition, false_body_ast)
+        link_nodes(false_body, end)
+    else:
+        link_nodes(condition, end)
+
     link_nodes(parent, condition)
-    link_nodes(condition, end)
-    link_nodes(body, end)
+    link_nodes(true_body, end)
 
     return end
 
@@ -176,19 +183,13 @@ def convert_yul_if(root, parent, ast):
 def convert_yul_switch(root, parent, ast):
     """
     This is unfortunate. We don't really want a switch in our IR so we're going to
-    translate it into a series of if statements.
-
-    Note that the expression may be state-changing, and so we need to store it somewhere
-    first
+    translate it into a series of if/else statements.
     """
     cases_ast = ast['cases']
     expression_ast = ast['expression']
 
-    # These are the two temporary variables we're using. The first stores the result of
-    # the expression being switched on, and the second stores whether a case was executed
-    # so we know whether to enter the default case or not
+    # this variable stores the result of the expression so we don't accidentally compute it more than once
     switch_expr_var = 'switch_expr_{}'.format(ast['src'].replace(':', '_'))
-    switch_matched_var = 'switch_matched_{}'.format(ast['src'].replace(':', '_'))
 
     rewritten_switch = {
         'nodeType': 'YulBlock',
@@ -207,26 +208,10 @@ def convert_yul_switch(root, parent, ast):
                 ],
                 'value': expression_ast,
             },
-            {
-                'nodeType': 'YulVariableDeclaration',
-                'src': expression_ast['src'],
-                'variables': [
-                    {
-                        'nodeType': 'YulTypedName',
-                        'src': expression_ast['src'],
-                        'name': switch_matched_var,
-                        'type': '',
-                    },
-                ],
-                'value': {
-                    'nodeType': 'YulLiteral',
-                    'src': expression_ast['src'],
-                    'value': '0',
-                    'type': '',
-                },
-            }
         ],
     }
+
+    last_if = None
 
     default_ast = None
 
@@ -238,7 +223,7 @@ def convert_yul_switch(root, parent, ast):
             default_ast = case_ast
             continue
 
-        rewritten_switch['statements'].append({
+        current_if = {
             'nodeType': 'YulIf',
             'src': case_ast['src'],
             'condition': {
@@ -258,62 +243,23 @@ def convert_yul_switch(root, parent, ast):
                     value_ast,
                 ]
             },
-            'body': {
-                'nodeType': 'YulBlock',
-                'src': body_ast['src'],
-                'statements': [
-                    {
-                        'nodeType': 'YulAssignment',
-                        'src': body_ast['src'],
-                        'variableNames': [
-                            {
-                                'nodeType': 'YulIdentifier',
-                                'src': body_ast['src'],
-                                'name': switch_matched_var,
-                            }
-                        ],
-                        'value': {
-                            'nodeType': 'YulLiteral',
-                            'src': expression_ast['src'],
-                            'value': '1',
-                            'type': '',
-                        },
-                    },
-                    body_ast,
-                ]
-            }
-        })
+            'body': body_ast,
+        }
+
+        if last_if:
+            last_if['false_body'] = current_if
+        else:
+            rewritten_switch['statements'].append(current_if)
+
+        last_if = current_if
 
     if default_ast:
         body_ast = default_ast['body']
 
-        rewritten_switch['statements'].append({
-            'nodeType': 'YulIf',
-            'src': default_ast['src'],
-            'condition': {
-                'nodeType': 'YulFunctionCall',
-                'src': default_ast['src'],
-                'functionName': {
-                    'nodeType': 'YulIdentifier',
-                    'src': default_ast['src'],
-                    'name': 'eq',
-                },
-                'arguments': [
-                    {
-                        'nodeType': 'YulIdentifier',
-                        'src': default_ast['src'],
-                        'name': switch_matched_var,
-                    },
-                    {
-                        'nodeType': 'YulLiteral',
-                        'src': default_ast['src'],
-                        'value': '0',
-                        'type': '',
-                    },
-                ]
-            },
-            'body': body_ast,
-        })
+        if last_if:
+            last_if['false_body'] = body_ast
+        else:
+            rewritten_switch['statements'].append(body_ast)
 
     return convert_yul(root, parent, rewritten_switch)
 
@@ -365,7 +311,7 @@ def convert_yul_leave(root, parent, ast):
 
 
 def convert_yul_typed_name(root, parent, ast):
-    var = YulVariable(ast)
+    var = YulLocalVariable(ast)
     var.set_function(root.function)
     var.set_offset(ast['src'], root.slither)
 
