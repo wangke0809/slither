@@ -41,6 +41,7 @@ class YulFunction(Function):
         self._counter_nodes = 0
 
         self._is_implemented = True
+        self._contains_assembly = True
 
         self._node_solc = root.function.node_solc()
 
@@ -403,6 +404,10 @@ def parse_yul_function_call(root, node, ast):
     if isinstance(ident.value, YulBuiltin):
         name = ident.value.name
         if name in binary_ops:
+            if name in ['shl', 'shr', 'sar']:
+                # lmao ok
+                return BinaryOperation(args[1], args[0], binary_ops[name])
+
             return BinaryOperation(args[0], args[1], binary_ops[name])
 
         if name in unary_ops:
