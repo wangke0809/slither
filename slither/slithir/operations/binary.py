@@ -29,6 +29,12 @@ class BinaryType(object):
     ANDAND =            17 # &&
     OROR =              18 # ||
 
+    DIVISION_SIGNED = 19
+    MODULO_SIGNED = 20
+    LESS_SIGNED = 21
+    GREATER_SIGNED = 22
+    RIGHT_SHIFT_ARITHMETIC = 23
+
     @staticmethod
     def return_bool(operation_type):
         return operation_type in [BinaryType.OROR,
@@ -80,6 +86,16 @@ class BinaryType(object):
             return BinaryType.ANDAND
         if operation_type == '||':
             return BinaryType.OROR
+        if operation_type == "/'":
+            return BinaryType.DIVISION_SIGNED
+        if operation_type == "%'":
+            return BinaryType.MODULO_SIGNED
+        if operation_type == "<'":
+            return BinaryType.LESS_SIGNED
+        if operation_type == ">'":
+            return BinaryType.GREATER_SIGNED
+        if operation_type == ">>'":
+            return BinaryType.RIGHT_SHIFT_ARITHMETIC
 
         raise SlithIRError('get_type: Unknown operation type {})'.format(operation_type))
 
@@ -123,6 +139,16 @@ class BinaryType(object):
             return '&&'
         if operation_type == BinaryType.OROR:
             return '||'
+        if operation_type == BinaryType.DIVISION_SIGNED:
+            return "/'"
+        if operation_type == BinaryType.MODULO_SIGNED:
+            return "%'"
+        if operation_type == BinaryType.LESS_SIGNED:
+            return "<'"
+        if operation_type == BinaryType.GREATER_SIGNED:
+            return ">'"
+        if operation_type == BinaryType.RIGHT_SHIFT_ARITHMETIC:
+            return ">>'"
         raise SlithIRError('str: Unknown operation type {})'.format(operation_type))
 
 class Binary(OperationWithLValue):

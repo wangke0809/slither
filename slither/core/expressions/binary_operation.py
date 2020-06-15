@@ -26,6 +26,12 @@ class BinaryOperationType:
     ANDAND =            17 # &&
     OROR =              18 # ||
 
+    DIVISION_SIGNED = 19
+    MODULO_SIGNED = 20
+    LESS_SIGNED = 21
+    GREATER_SIGNED = 22
+    RIGHT_SHIFT_ARITHMETIC = 23
+
     @staticmethod
     def get_type(operation_type):
         if operation_type == '**':
@@ -66,6 +72,16 @@ class BinaryOperationType:
             return BinaryOperationType.ANDAND
         if operation_type == '||':
             return BinaryOperationType.OROR
+        if operation_type == "/'":
+            return BinaryOperationType.DIVISION_SIGNED
+        if operation_type == "%'":
+            return BinaryOperationType.MODULO_SIGNED
+        if operation_type == "<'":
+            return BinaryOperationType.LESS_SIGNED
+        if operation_type == ">'":
+            return BinaryOperationType.GREATER_SIGNED
+        if operation_type == ">>'":
+            return BinaryOperationType.RIGHT_SHIFT_ARITHMETIC
 
         raise SlitherCoreError('get_type: Unknown operation type {})'.format(operation_type))
 
@@ -109,6 +125,16 @@ class BinaryOperationType:
             return '&&'
         if operation_type == BinaryOperationType.OROR:
             return '||'
+        if operation_type == BinaryOperationType.DIVISION_SIGNED:
+            return "/'"
+        if operation_type == BinaryOperationType.MODULO_SIGNED:
+            return "%'"
+        if operation_type == BinaryOperationType.LESS_SIGNED:
+            return "<'"
+        if operation_type == BinaryOperationType.GREATER_SIGNED:
+            return ">'"
+        if operation_type == BinaryOperationType.RIGHT_SHIFT_ARITHMETIC:
+            return ">>'"
         raise SlitherCoreError('str: Unknown operation type {})'.format(operation_type))
 
 class BinaryOperation(ExpressionTyped):
