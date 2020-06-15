@@ -84,6 +84,13 @@ class SolidityVariable(Context):
         assert name in SOLIDITY_VARIABLES or name.endswith("_slot") or name.endswith("_offset")
 
     @property
+    def state_variable(self):
+        if self._name.endswith("_slot"):
+            return self._name[:-5]
+        if self._name.endswith("_offset"):
+            return self._name[:-7]
+
+    @property
     def name(self):
         return self._name
 
