@@ -29,6 +29,7 @@ class UserDefinedType(Type):
         elif isinstance(self._type, Enum):
             return int(math.ceil(math.log2(len(self._type.values)) / 8)), False
         elif isinstance(self._type, Structure):
+            # todo there's some duplicate logic here and slither_core, can we refactor this?
             slot = 0
             offset = 0
             for elem in self._type.elems_ordered:
