@@ -3,6 +3,7 @@ import json
 import re
 import logging
 from typing import Optional, List
+import math
 
 from slither.core.declarations import Contract
 from slither.exceptions import SlitherException
@@ -30,6 +31,8 @@ class SlitherSolc(Slither):
         self._is_compact_ast = False
 
         self._top_level_contracts_counter = 0
+
+        self._storage_layouts = {}
 
     ###################################################################################
     ###################################################################################
@@ -296,6 +299,8 @@ Please rename it, this name is reserved for Slither's internals""")
 
         compute_dependency(self)
 
+        self._compute_storage_layout()
+
     def _analyze_all_enums(self, contracts_to_be_analyzed):
         while contracts_to_be_analyzed:
             contract = contracts_to_be_analyzed[0]
@@ -419,5 +424,34 @@ Please rename it, this name is reserved for Slither's internals""")
         for contract in self.contracts:
             contract.fix_phi()
             contract.update_read_write_using_ssa()
+
+    def _compute_storage_layout(self):
+        for contract in self.contracts_derived:
+            self._storage_layouts[contract.name] = {}
+
+            slot = 0
+            offset = 0
+            for var in contract.state_variables_ordered:
+                if var.is_constant:
+                    continue
+
+                size, new_slot = var.type.storage_size
+
+                if new_slot:
+                    if offset > 0:
+                        slot += 1
+                        offset = 0
+                elif size + offset > 32:
+                    slot += 1
+                    offset = 0
+
+                self._storage_layouts[contract.name][var.canonical_name] = (slot, offset)
+                if new_slot:
+                    slot += math.ceil(size / 32)
+                else:
+                    offset += size
+
+    def storage_layout_of(self, contract, var):
+        return self._storage_layouts[contract.name][var.canonical_name]
 
     # endregion

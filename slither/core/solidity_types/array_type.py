@@ -32,6 +32,13 @@ class ArrayType(Type):
     def length(self):
         return self._length
 
+    @property
+    def storage_size(self):
+        if self._length_value:
+            elem_size, _ = self._type.storage_size
+            return elem_size * int(self._length_value.value), True
+        return 32, True
+
     def __str__(self):
         if self._length:
             return str(self._type)+'[{}]'.format(str(self._length_value))

@@ -1,3 +1,5 @@
+import math
+
 from slither.core.solidity_types.type import Type
 
 
@@ -15,6 +17,37 @@ class UserDefinedType(Type):
     @property
     def type(self):
         return self._type
+
+    @property
+    def storage_size(self):
+        from slither.core.declarations.structure import Structure
+        from slither.core.declarations.enum import Enum
+        from slither.core.declarations.contract import Contract
+
+        if isinstance(self._type, Contract):
+            return 20, False
+        elif isinstance(self._type, Enum):
+            return int(math.ceil(math.log2(len(self._type.values)) / 8)), False
+        elif isinstance(self._type, Structure):
+            slot = 0
+            offset = 0
+            for elem in self._type.elems_ordered:
+                size, new_slot = elem.type.storage_size
+                if new_slot:
+                    if offset > 0:
+                        slot += 1
+                        offset = 0
+                elif size + offset > 32:
+                    slot += 1
+                    offset = 0
+
+                if new_slot:
+                    slot += math.ceil(size / 32)
+                else:
+                    offset += size
+            if offset > 0:
+                slot += 1
+            return slot * 32, True
 
     def __str__(self):
         from slither.core.declarations.structure import Structure

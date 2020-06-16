@@ -66,6 +66,10 @@ class ElementaryType(Type):
             return int(t[len('bytes'):])
         return None
 
+    @property
+    def storage_size(self):
+        return int(self.size / 8), False
+
     def __str__(self):
         return self._type
 
